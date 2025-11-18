@@ -9,8 +9,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const daysContainer = document.getElementById('days-container');
     const settingsButton = document.getElementById('settings-button');
     const settingsModal = document.getElementById('settings-modal');
-    const upgradeModal = document.getElementById('upgrade-modal');
     const closeSettingsButton = document.getElementById('close-settings');
+    const upgradeModal = document.getElementById('upgrade-modal');
     const closeUpgradeModal = document.getElementById('close-upgrade-modal');
     const upgradeWhatsappBtn = document.getElementById('upgrade-whatsapp-btn');
     let dayCounter = 0;
@@ -89,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     const addDay = () => {
         const settings = getSettings();
-        if (settings.isTrial && dayCounter >= 3) {
+        if (settings.isTrial && daysContainer.querySelectorAll('.day-block').length >= 3) {
             showUpgradeModal();
             return;
         }
@@ -866,42 +866,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     /**
-     * [وهمية] دالة لجلب الإعدادات من السيرفر.
-     * **ملاحظة:** يجب استبدال هذا الكود باتصال حقيقي بالسيرفر الخاص بك.
-     */
-    const fetchSettingsFromServer = async () => {
-        console.log("محاولة جلب الإعدادات من السيرفر (دالة وهمية)...");
-        // في الوضع الحقيقي، ستقوم بعمل fetch لـ API حقيقي
-        // const response = await fetch('https://your-api.com/settings');
-        // const settings = await response.json();
-        // return settings;
-
-        // حالياً، سنقوم بالقراءة من localStorage كحل بديل
-        const savedSettings = localStorage.getItem('dietPlanGeneratorSettings');
-        return savedSettings ? JSON.parse(savedSettings) : null;
-    };
-
-    /**
-     * [وهمية] دالة لحفظ الإعدادات في السيرفر.
-     * @param {object} settings - كائن الإعدادات المراد حفظه.
-     */
-    const saveSettingsToServer = async (settings) => {
-        console.log("محاولة حفظ الإعدادات في السيرفر (دالة وهمية)...", settings);
-        // في الوضع الحقيقي، ستقوم بعمل fetch لـ API حقيقي
-        // await fetch('https://your-api.com/settings', {
-        //     method: 'POST',
-        //     headers: { 'Content-Type': 'application/json' },
-        //     body: JSON.stringify(settings)
-        // });
-
-        // حالياً، سنقوم بالحفظ في localStorage كحل بديل
-        localStorage.setItem('dietPlanGeneratorSettings', JSON.stringify(settings));
-    };
-
-    /**
      * يحفظ الإعدادات من النافذة المنبثقة إلى localStorage.
      */
-    const saveSettings = () => {
+    const saveSettings = async () => {
         const settings = {
             userKey: document.getElementById('settings-user-key').value.trim(),
             isTrial: document.getElementById('settings-trial-version').checked,
@@ -914,33 +881,49 @@ document.addEventListener('DOMContentLoaded', () => {
             imgSig2: document.getElementById('settings-img-sig2').value,
             imgLogo: document.getElementById('settings-img-logo').value,
         };
-        // استدعاء الدالة الوهمية لحفظ الإعدادات
+
         if (!settings.userKey) {
             alert("خطأ: حقل 'مفتاح المستخدم' لا يمكن أن يكون فارغاً.");
             return;
         }
 
-        // جلب كائن المستخدمين الحالي
-        const allUserSettings = JSON.parse(localStorage.getItem('dietPlanUserProfiles') || '{}');
-        // تحديث أو إضافة المستخدم الحالي
-        allUserSettings[settings.userKey] = settings;
-        // حفظ الكائن المحدث
-        localStorage.setItem('dietPlanUserProfiles', JSON.stringify(allUserSettings));
-
-        alert(`تم حفظ الإعدادات للمستخدم '${settings.userKey}' بنجاح!`);
-        settingsModal.style.display = 'none';
+        try {
+            // حفظ الإعدادات في Firebase تحت المسار 'users/userKey'
+            await database.ref('users/' + settings.userKey).set(settings);
+            alert(`تم حفظ الإعدادات للمستخدم '${settings.userKey}' في Firebase بنجاح!`);
+            settingsModal.style.display = 'none';
+        } catch (error) {
+            console.error("فشل حفظ الإعدادات في Firebase:", error);
+            alert("حدث خطأ أثناء محاولة حفظ الإعدادات. يرجى مراجعة console.");
+        }
     };
 
     /**
      * يقرأ الإعدادات من localStorage ويعرضها في النافذة المنبثقة.
      */
-    const loadSettings = (userKey = null) => {
+    const loadSettings = async (userKey = null) => {
+        /*
         let settings;
         if (userKey) {
             const allUserSettings = JSON.parse(localStorage.getItem('dietPlanUserProfiles') || '{}');
             settings = allUserSettings[userKey] || getSettings(); // إذا لم يتم العثور على المستخدم، استخدم الافتراضيات
         } else {
             settings = getSettings(); // تحميل الإعدادات الافتراضية عند عدم تحديد مستخدم
+        }
+        */
+
+        let settings = getDefaults(); // ابدأ بالقيم الافتراضية
+
+        if (userKey) {
+            try {
+                const snapshot = await database.ref('users/' + userKey).once('value');
+                if (snapshot.exists()) {
+                    settings = snapshot.val();
+                }
+            } catch (error) {
+                console.error("فشل في جلب الإعدادات من Firebase:", error);
+                alert("لم نتمكن من جلب الإعدادات من قاعدة البيانات.");
+            }
         }
 
         document.getElementById('settings-user-key').value = settings.userKey || userKey || '';
@@ -956,22 +939,9 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     /**
-     * يجلب الإعدادات المحفوظة مع قيم افتراضية.
+     * يُرجع كائن الإعدادات الافتراضية.
      */
-    const getSettings = () => {
-        // 1. تحقق من وجود مفتاح مستخدم في رابط الصفحة الحالي
-        const urlParams = new URLSearchParams(window.location.search);
-        const userKey = urlParams.get('user');
-
-        // 2. إذا وجد مفتاح، حاول جلب إعداداته
-        if (userKey) {
-            const allUserSettings = JSON.parse(localStorage.getItem('dietPlanUserProfiles') || '{}');
-            if (allUserSettings[userKey]) {
-                return allUserSettings[userKey];
-            }
-        }
-
-        // 3. في حالة عدم وجود مفتاح أو عدم العثور على إعدادات، ارجع للقيم الافتراضية
+    const getDefaults = () => {
         const defaults = {
             isTrial: false,
             signatureType: 'standard', // standard | logo-only
@@ -985,6 +955,35 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         return defaults;
+    };
+
+    // متغير عالمي لتخزين إعدادات المستخدم الحالي
+    let currentUserSettings = getDefaults();
+
+    /**
+     * يجلب الإعدادات المحفوظة مع قيم افتراضية.
+     */
+    const getSettings = () => {
+        return currentUserSettings;
+    };
+
+    /**
+     * يقوم بتهيئة إعدادات المستخدم عند تحميل الصفحة.
+     */
+    const initializeUserSettings = async (userKey) => {
+        if (!userKey) return false;
+
+        try {
+            const snapshot = await database.ref('users/' + userKey).once('value');
+            if (snapshot.exists()) {
+                currentUserSettings = snapshot.val();
+                return true; // تم العثور على المستخدم
+            }
+            return false; // لم يتم العثور على المستخدم
+        } catch (error) {
+            console.error("فشل في تهيئة إعدادات المستخدم من Firebase:", error);
+            return false; // حدث خطأ
+        }
     };
 
     /**
@@ -1050,28 +1049,43 @@ document.addEventListener('DOMContentLoaded', () => {
     populateNutritionFields(); // إنشاء صناديق اختيار الحقول الغذائية
 
     // --- منطق التحميل الأولي بناءً على الرابط ---
-    const urlParamsOnInit = new URLSearchParams(window.location.search);
-    const userKeyFromUrl = urlParamsOnInit.get('user');
+    (async () => {
+        const urlParamsOnInit = new URLSearchParams(window.location.search);
+        const userKeyFromUrl = urlParamsOnInit.get('user');
 
-    // التحقق من وجود مفتاح مستخدم في الرابط
-    if (!userKeyFromUrl) {
-        // إذا لم يتم توفير مفتاح مستخدم في الرابط، يتم حظر الوصول
-        document.body.innerHTML = `
-            <div style="text-align: center; padding: 50px; font-family: 'Cairo', sans-serif; color: #333;">
-                <h1>الوصول مرفوض</h1>
-                <p>هذا الرابط غير صالح. يرجى استخدام الرابط المخصص الذي تم إرساله إليك.</p>
-            </div>
-        `;
-        return; // إيقاف تنفيذ باقي الكود
-    }
-
-    // التحقق إذا كان المستخدم هو المدير (ADMIN)
-    if (userKeyFromUrl.toLowerCase() !== 'botta12345@') {
-        // إذا لم يكن المستخدم هو المدير، يتم تفعيل وضع العميل
-        if (settingsButton) {
-            settingsButton.style.display = 'none'; // إخفاء زر الإعدادات
+        // التحقق من وجود مفتاح مستخدم في الرابط
+        if (!userKeyFromUrl) {
+            // إذا لم يتم توفير مفتاح مستخدم في الرابط، يتم حظر الوصول
+            document.body.innerHTML = `
+                <div style="text-align: center; padding: 50px; font-family: 'Cairo', sans-serif; color: #333;">
+                    <h1>الوصول مرفوض</h1>
+                    <p>هذا الرابط غير صالح. يرجى استخدام الرابط المخصص الذي تم إرساله إليك.</p>
+                </div>
+            `;
+            return; // إيقاف تنفيذ باقي الكود
         }
-    }
+
+        // جلب إعدادات المستخدم من Firebase والتحقق من وجوده
+        const userExists = await initializeUserSettings(userKeyFromUrl);
+
+        // التحقق إذا كان المستخدم هو المدير (ADMIN)
+        const isAdmin = userKeyFromUrl.toLowerCase() === 'botta12345@';
+
+        // إذا لم يكن المستخدم موجوداً في قاعدة البيانات وليس هو المدير، يتم رفض الوصول
+        if (!userExists && !isAdmin) {
+            document.body.innerHTML = `
+                <div style="text-align: center; padding: 50px; font-family: 'Cairo', sans-serif; color: #333;">
+                    <h1>الوصول مرفوض</h1>
+                    <p>هذا الرابط غير صالح أو المستخدم غير موجود في قاعدة البيانات.</p>
+                </div>
+            `;
+            return; // إيقاف تنفيذ باقي الكود
+        }
+
+        if (!isAdmin) {
+            // إذا لم يكن المستخدم هو المدير، يتم تفعيل وضع العميل
+            if (settingsButton) settingsButton.style.display = 'none'; // إخفاء زر الإعدادات
+        }
 
     updateUIForPlanType(); // تحديث الواجهة بعد تحديد الوضع
 
@@ -1091,7 +1105,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // ربط أحداث نافذة الترقية
     if (closeUpgradeModal) closeUpgradeModal.addEventListener('click', () => upgradeModal.style.display = 'none');
     if (upgradeWhatsappBtn) upgradeWhatsappBtn.addEventListener('click', () => {
-        upgradeModal.style.display = 'none'; // إخفاء النافذة عند النقر
         const settings = getSettings();
         const urlParams = new URLSearchParams(window.location.search);
         const userKey = urlParams.get('user');
@@ -1198,4 +1211,5 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    })(); // نهاية الدالة الفورية
 });
